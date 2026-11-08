@@ -1,0 +1,57 @@
+#!/usr/bin/env python3
+"""Show NatWest account balances, or download transactions as CSV.
+
+A thin wrapper around the `banklib` library, which does all the real work
+(Selenium-driven login, scraping and CSV download). On first run this creates a
+private venv and installs banklib into it from the local repo, then re-executes
+itself inside that venv. Set BANKLIB_REPO to point at the repo if it isn't at
+~/Code/bankreport. Firefox must be installed.
+
+Usage:
+    natwest                     show balances
+    natwest --show              run with a visible browser window (debugging / 2FA)
+    natwest --json              machine-readable output
+    natwest --forget            delete stored credentials
+    natwest --download          download all accounts' transactions (last 12
+                                months) as a CSV into the current directory
+    natwest --download --account BILLS --out ~/statements/
+                                download only matching account(s) to a directory
+"""
+
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+CACHE_DIR = Path.home() / ".cache" / "banklib"
+VENV = CACHE_DIR / "venv"
+# Windows venvs put the interpreter in Scripts/python.exe; POSIX uses bin/python.
+VENV_PY = VENV / "Scripts" / "python.exe" if os.name == "nt" else VENV / "bin" / "python"
+REPO = Path(os.environ.get("BANKLIB_REPO", Path.home() / "Code" / "bankreport"))
+
+
+def ensure_venv():
+    """Re-run inside the private venv, creating it (and installing banklib) if needed."""
+    if Path(sys.prefix).resolve() == VENV.resolve():
+        return
+    # A marker written only after a successful install lets a half-built venv
+    # heal itself, rather than trusting the mere presence of the interpreter.
+    marker = VENV / ".banklib-installed"
+    if not VENV_PY.exists():
+        print("First run: creating venv in ~/.cache/banklib/venv ...", file=sys.stderr)
+        subprocess.run([sys.executable, "-m", "venv", str(VENV)], check=True)
+    if not marker.exists():
+        print(f"Installing banklib from {REPO} ...", file=sys.stderr)
+        subprocess.run([str(VENV_PY), "-m", "pip", "install", "-q", "-e", str(REPO)],
+                       check=True)
+        marker.touch()
+    # Windows has no real exec(); a subprocess hand-off behaves the same everywhere.
+    proc = subprocess.run([str(VENV_PY), __file__, *sys.argv[1:]])
+    sys.exit(proc.returncode)
+
+
+ensure_venv()
+
+from banklib.cli import main  # noqa: E402
+
+sys.exit(main("natwest"))
