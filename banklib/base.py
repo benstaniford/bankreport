@@ -12,7 +12,7 @@ import enum
 
 from .credentials import CredentialField
 from .errors import UnsupportedCapability
-from .models import Account, DownloadResult
+from .models import Account, DownloadResult, FetchResult
 
 
 class Capability(enum.Enum):
@@ -20,6 +20,7 @@ class Capability(enum.Enum):
 
     BALANCES = "balances"
     DOWNLOAD = "download"
+    TRANSACTIONS = "transactions"
 
 
 class Provider(abc.ABC):
@@ -62,6 +63,18 @@ class Provider(abc.ABC):
         """Download transactions. Default: declare the capability unsupported."""
         raise UnsupportedCapability(
             f"{self.display_name or self.name} does not support transaction downloads")
+
+    def fetch_transactions(self, browser, ranges, accounts: list[str] | None,
+                           download_dir) -> FetchResult:
+        """Fetch transactions for the given uncovered date ``ranges``.
+
+        ``ranges`` is a list of inclusive ``(start, end)`` date gaps the cache is
+        missing. The provider fetches from the bank (downloads, scrapes) and
+        returns a :class:`FetchResult`. Only overridden by providers whose
+        ``capabilities`` include :attr:`Capability.TRANSACTIONS`.
+        """
+        raise UnsupportedCapability(
+            f"{self.display_name or self.name} does not support transactions")
 
     # -- shared default ----------------------------------------------------
     def logout(self, browser) -> None:

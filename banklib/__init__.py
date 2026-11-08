@@ -32,10 +32,12 @@ from .errors import (
     UnknownProviderError,
     UnsupportedCapability,
 )
-from .models import Account, DownloadResult
+from .models import Account, DownloadResult, FetchResult, Transaction
 from .money import format_money, parse_money
 from .registry import get_provider, list_providers, register
+from .service import get_transactions
 from .session import Session, open_session
+from .store import TransactionStore
 
 __all__ = [
     "Account",
@@ -47,14 +49,18 @@ __all__ = [
     "CredentialsError",
     "DownloadError",
     "DownloadResult",
+    "FetchResult",
     "LoginError",
     "Provider",
     "ScrapeError",
     "Session",
+    "Transaction",
+    "TransactionStore",
     "UnknownProviderError",
     "UnsupportedCapability",
     "format_money",
     "get_provider",
+    "get_transactions",
     "list_providers",
     "open_session",
     "parse_money",

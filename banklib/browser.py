@@ -102,7 +102,11 @@ def make_driver(headless: bool = True, profile_dir: Path | None = None,
         opts.set_preference(
             "browser.helperApps.neverAsk.saveToDisk",
             "text/csv,application/csv,application/vnd.ms-excel,"
-            "application/octet-stream,text/plain,application/download")
+            "application/octet-stream,text/plain,application/download,"
+            "application/pdf")
+        # Save PDFs straight to disk instead of opening the built-in viewer.
+        opts.set_preference("pdfjs.disabled", True)
+        opts.set_preference("browser.download.manager.showWhenStarting", False)
     try:
         driver = webdriver.Firefox(options=opts)
     except WebDriverException as e:

@@ -7,6 +7,7 @@ browser-driving so they can be unit-tested directly.
 
 from __future__ import annotations
 
+import datetime
 import re
 import time
 from pathlib import Path
@@ -17,8 +18,9 @@ from ..base import Capability, Provider
 from ..browser import leading_number
 from ..credentials import CredentialField
 from ..errors import DownloadError, LoginError, ScrapeError
-from ..models import Account, DownloadResult
+from ..models import Account, DownloadResult, FetchResult
 from ..money import parse_money
+from ..parse.natwest_csv import parse_natwest_csv
 from ..registry import register
 
 LOGIN_URL = "https://www.onlinebanking.natwest.com/"
@@ -141,7 +143,8 @@ class NatWestProvider(Provider):
     name = "natwest"
     display_name = "NatWest"
     login_url = LOGIN_URL
-    capabilities = frozenset({Capability.BALANCES, Capability.DOWNLOAD})
+    capabilities = frozenset(
+        {Capability.BALANCES, Capability.DOWNLOAD, Capability.TRANSACTIONS})
     credential_fields = [
         CredentialField("customer_number", "Customer number"),
         CredentialField("pin", "PIN (4 digits)", secret=True, pattern=r"\d{4}"),
@@ -245,6 +248,28 @@ class NatWestProvider(Provider):
             raise DownloadError("Download did not produce a CSV"
                                 + (f": {errs}" if errs else ""))
         return DownloadResult(path=saved, accounts=[a["name"] for a in wanted])
+
+    # -- transactions -----------------------------------------------------
+    def fetch_transactions(self, browser, ranges, accounts: list[str] | None,
+                           download_dir) -> FetchResult:
+        """Download the 12-month CSV once and parse it.
+
+        NatWest only exports a whole "Last 12 months" CSV, so any missing range
+        triggers one bulk download covering every account (the ``accounts``
+        filter is applied at query time, not here, to keep coverage honest). The
+        returned ``covered`` spans the requested gaps, capped at today — a new
+        day creates a fresh gap that re-downloads and refreshes everything via
+        the cache's ``INSERT OR IGNORE``.
+        """
+        if not ranges:
+            return FetchResult()
+        result = self.download(browser, None, download_dir)
+        text = Path(result.path).read_text(encoding="utf-8-sig", errors="replace")
+        txns = parse_natwest_csv(text)
+        today = datetime.date.today()
+        covered_start = min(r[0] for r in ranges)
+        covered_end = min(max(r[1] for r in ranges), today)
+        return FetchResult(transactions=txns, covered=[(covered_start, covered_end)])
 
     def _goto_downloads(self, browser) -> None:
         # SPA navigation; a full load of the deep link triggers an endless
