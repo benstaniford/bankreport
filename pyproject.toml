@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "banklib"
+version = "0.1.0"
+description = "Drive UK online banking (balances and transaction downloads) through a headless Firefox, behind one provider-abstracted API."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "selenium>=4.0",
+    "keyring>=23.0",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=7.0"]
+
+[project.scripts]
+# Optional console entry points for when banklib is pip-installed directly.
+# The primary interface remains the ~/dot-files/scripts/natwest and /barclays
+# wrappers, but these let `natwest`/`barclays` work from any installed venv too.
+natwest = "banklib.cli:_natwest"
+barclays = "banklib.cli:_barclays"
+
+[tool.setuptools]
+packages = ["banklib", "banklib.providers"]
