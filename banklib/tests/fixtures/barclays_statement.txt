@@ -1,0 +1,46 @@
+Your Gold Visa statement
+Number 1234 5678 9012 3456
+Mr A Tester
+1 Example Street
+Testville
+TE5 7XX
+At a glance
+Your new balance:
+
+£500.00
+Please pay by:
+
+30 November 2026
+Your transactions
+Your previous balance
+
+£100.00
+Payments towards your account
+
+£50.00
+27 Oct
+Payment By Direct Debit
+£50.00
+How you've used your card
+01 Oct
+Coffee Shop, Testville
+e
+
+£3.50
+02 Oct
+Big Store*Order12345,
+
+Ref-98765
+£42.00
+03 Oct
+Refund Co, London
+£10.00CR
+Ways to pay
+Direct Debit
+Please pay before 23:45 on 30 November using the app.
+£999.99
+Sort code 20-04-15
+04 Oct
+Late Shop, Testville 0800 328 1700
+£7.25
+Page 1 of 1 // issued on 05 November 2026

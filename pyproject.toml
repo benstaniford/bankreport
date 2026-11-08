@@ -11,6 +11,7 @@ requires-python = ">=3.9"
 dependencies = [
     "selenium>=4.0",
     "keyring>=23.0",
+    "pypdf>=4.0",
 ]
 
 [project.optional-dependencies]
@@ -24,4 +25,4 @@ natwest = "banklib.cli:_natwest"
 barclays = "banklib.cli:_barclays"
 
 [tool.setuptools]
-packages = ["banklib", "banklib.providers"]
+packages = ["banklib", "banklib.providers", "banklib.parse"]
