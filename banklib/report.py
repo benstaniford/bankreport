@@ -45,6 +45,19 @@ CATEGORIES = [
     "Other",
 ]
 
+#: Income sources get their own vocabulary (money *in* is not "Groceries").
+INCOME_CATEGORIES = [
+    "Salary",
+    "Benefits",
+    "Pension",
+    "Interest",
+    "Investments",
+    "Refunds",
+    "Gifts",
+    "Transfers In",
+    "Other Income",
+]
+
 #: Used when nothing is known about a description (no Claude, or a gap).
 UNCATEGORISED = "Uncategorised"
 
@@ -55,6 +68,7 @@ UNCATEGORISED = "Uncategorised"
 NON_SPEND_CATEGORIES = frozenset({"Income", "Savings"})
 
 _VALID_CATEGORIES = frozenset(CATEGORIES)
+_VALID_INCOME = frozenset(INCOME_CATEGORIES)
 
 # -- month boundaries -------------------------------------------------------
 
@@ -191,12 +205,39 @@ def build_category_prompt(descriptions: list[str]) -> str:
     )
 
 
-def parse_category_response(text: str) -> dict[str, dict]:
+def build_income_prompt(descriptions: list[str]) -> str:
+    """Prompt asking Claude to categorise income (money-in) descriptions."""
+    cats = ", ".join(INCOME_CATEGORIES)
+    listing = "\n".join(f"- {d}" for d in descriptions)
+    return (
+        "You are categorising incoming payments on a UK bank statement (money "
+        "received).\n"
+        "For each description below, identify the payer/source and assign exactly "
+        "one category.\n\n"
+        f"Allowed categories (use these spellings only): {cats}.\n"
+        "Guidance: wages/salary from an employer -> Salary; HMRC/DWP/child "
+        "benefit/universal credit -> Benefits; a pension provider -> Pension; "
+        "bank/savings interest -> Interest; dividends or money back from an "
+        "investment/savings platform -> Investments; a merchant refund -> Refunds; "
+        "money from friends/family -> Gifts; money moved in from your own other "
+        "account -> Transfers In; anything else -> Other Income.\n\n"
+        "Respond with ONLY a JSON object mapping each exact description (verbatim, "
+        'as given) to an object {\"category\": \"...\", \"merchant\": \"...\"}. '
+        "No prose, no code fences.\n\n"
+        "Descriptions:\n" + listing
+    )
+
+
+def parse_category_response(text: str, *, valid: frozenset | None = None,
+                            fallback: str = "Other") -> dict[str, dict]:
     """Parse Claude's JSON reply into ``{NORMALISED_DESC: {category, merchant}}``.
 
-    Tolerant of `````json`` fences and surrounding prose; unknown
-    categories are coerced to ``Other``. Returns ``{}`` if nothing parses.
+    Tolerant of `````json`` fences and surrounding prose; categories
+    outside ``valid`` (the spending vocabulary by default) are coerced to
+    ``fallback``. Returns ``{}`` if nothing parses.
     """
+    if valid is None:
+        valid = _VALID_CATEGORIES
     blob = _extract_json_object(text)
     if blob is None:
         return {}
@@ -214,8 +255,8 @@ def parse_category_response(text: str) -> dict[str, dict]:
         else:  # a bare category string
             category = str(info).strip()
             merchant = ""
-        if category not in _VALID_CATEGORIES:
-            category = "Other"
+        if category not in valid:
+            category = fallback
         out[normalise(desc)] = {"category": category, "merchant": merchant}
     return out
 
@@ -273,3 +314,15 @@ def aggregate_by_category(
     spend.sort(key=lambda c: c.total, reverse=True)
     non_spend.sort(key=lambda c: c.total, reverse=True)
     return spend, non_spend
+
+
+def aggregate_income(income: list[Transaction],
+                     categories: dict[str, dict]) -> list[CategoryTotal]:
+    """Totals per income category (amounts are positive), largest first."""
+    buckets: dict[str, list[float]] = {}
+    for t in income:
+        buckets.setdefault(category_of(t, categories), []).append(t.amount)
+    totals = [CategoryTotal(category=cat, total=sum(amounts), count=len(amounts))
+              for cat, amounts in buckets.items()]
+    totals.sort(key=lambda c: c.total, reverse=True)
+    return totals

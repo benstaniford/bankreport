@@ -21,7 +21,8 @@ from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, KeepTogether)
 
 from .money import format_money
-from .report import Breakdown, aggregate_by_category, category_of
+from .report import (
+    Breakdown, aggregate_by_category, aggregate_income, category_of)
 
 _HEADER_BG = colors.HexColor("#1f3a5f")
 _ROW_ALT = colors.HexColor("#f2f5f9")
@@ -30,8 +31,10 @@ _MUTED = colors.HexColor("#555555")
 
 
 def render(path, *, period: tuple[datetime.date, datetime.date],
-           breakdown: Breakdown, categories: dict) -> Path:
+           breakdown: Breakdown, categories: dict,
+           income_categories: dict | None = None) -> Path:
     """Write the report PDF for ``period`` and return its path."""
+    income_categories = income_categories or {}
     path = Path(path)
     start, end = period
     month_label = start.strftime("%B %Y")
@@ -67,9 +70,17 @@ def render(path, *, period: tuple[datetime.date, datetime.date],
         story.append(_category_chart(spend_totals))
         story.append(Spacer(1, 6 * mm))
 
+    income_totals = aggregate_income(breakdown.income, income_categories)
+    if income_totals:
+        story.append(Paragraph("Income by category", styles["h2"]))
+        story.append(_category_table(income_totals, None))
+        if len(income_totals) > 1:
+            story.append(Spacer(1, 4 * mm))
+            story.append(_category_chart(income_totals))
+        story.append(Spacer(1, 6 * mm))
+
     if non_spend_totals:
-        story.append(Paragraph(
-            "Transfers, savings & income (excluded from spend)", styles["h2"]))
+        story.append(Paragraph("Savings (excluded from spend)", styles["h2"]))
         story.append(_category_table(non_spend_totals, None))
         story.append(Spacer(1, 6 * mm))
 

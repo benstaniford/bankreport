@@ -75,6 +75,7 @@ from banklib import report, report_pdf  # noqa: E402
 
 PROVIDERS = ("natwest", "barclays")
 CATEGORY_CACHE = CACHE_DIR / "categories.json"
+INCOME_CACHE = CACHE_DIR / "categories-income.json"
 
 
 def parse_args(argv=None):
@@ -133,27 +134,32 @@ def fetch(provider_name, start, end, *, show):
                                     headless=not show, on_status=on_status)
 
 
-def categorize(descriptions, *, use_claude):
-    """Return {NORMALISED_DESC: {category, merchant}}, caching across runs."""
-    cache = _load_cache()
+def categorize(descriptions, cache_path, prompt_builder, *, use_claude,
+               valid=None, fallback="Other", label="merchant(s)"):
+    """Return {NORMALISED_DESC: {category, merchant}}, caching across runs.
+
+    ``prompt_builder``/``valid``/``fallback`` let the same machinery categorise
+    either spending or income, each with its own cache file and vocabulary.
+    """
+    cache = _load_cache(cache_path)
     missing = [d for d in descriptions if d not in cache]
     if missing and use_claude:
-        resolved = _ask_claude(missing)
+        resolved = _ask_claude(missing, prompt_builder, valid, fallback, label)
         for desc in missing:  # record even misses so we don't re-ask every run
             cache[desc] = resolved.get(desc, {"category": report.UNCATEGORISED,
                                               "merchant": ""})
-        _save_cache(cache)
+        _save_cache(cache_path, cache)
     return cache
 
 
-def _ask_claude(descriptions):
+def _ask_claude(descriptions, prompt_builder, valid, fallback, label):
     claude = shutil.which("claude")
     if not claude:
-        print("claude not found on PATH; leaving new merchants Uncategorised.",
+        print(f"claude not found on PATH; leaving new {label} Uncategorised.",
               file=sys.stderr)
         return {}
-    prompt = report.build_category_prompt(descriptions)
-    print(f"Asking claude to categorise {len(descriptions)} new merchant(s) ...",
+    prompt = prompt_builder(descriptions)
+    print(f"Asking claude to categorise {len(descriptions)} new {label} ...",
           file=sys.stderr)
     try:
         proc = subprocess.run(
@@ -168,7 +174,7 @@ def _ask_claude(descriptions):
               f"{proc.stderr.strip()}", file=sys.stderr)
         return {}
     text = _unwrap_claude_json(proc.stdout)
-    return report.parse_category_response(text)
+    return report.parse_category_response(text, valid=valid, fallback=fallback)
 
 
 def _unwrap_claude_json(stdout):
@@ -182,19 +188,19 @@ def _unwrap_claude_json(stdout):
     return stdout
 
 
-def _load_cache():
-    if CATEGORY_CACHE.exists():
+def _load_cache(cache_path):
+    if cache_path.exists():
         try:
-            return json.loads(CATEGORY_CACHE.read_text(encoding="utf-8"))
+            return json.loads(cache_path.read_text(encoding="utf-8"))
         except (ValueError, OSError):
             pass
     return {}
 
 
-def _save_cache(cache):
-    CATEGORY_CACHE.parent.mkdir(parents=True, exist_ok=True)
-    CATEGORY_CACHE.write_text(json.dumps(cache, indent=2, sort_keys=True),
-                              encoding="utf-8")
+def _save_cache(cache_path, cache):
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache_path.write_text(json.dumps(cache, indent=2, sort_keys=True),
+                          encoding="utf-8")
 
 
 def default_out_path(out, start):
@@ -221,13 +227,20 @@ def main(argv=None):
         return 1
 
     breakdown = report.classify(natwest, barclays)
-    descriptions = report.unique_descriptions(breakdown.spending)
-    categories = categorize(descriptions, use_claude=not args.no_claude)
+    categories = categorize(
+        report.unique_descriptions(breakdown.spending),
+        CATEGORY_CACHE, report.build_category_prompt,
+        use_claude=not args.no_claude, fallback="Other", label="merchant(s)")
+    income_categories = categorize(
+        report.unique_descriptions(breakdown.income),
+        INCOME_CACHE, report.build_income_prompt,
+        use_claude=not args.no_claude, valid=frozenset(report.INCOME_CATEGORIES),
+        fallback="Other Income", label="income source(s)")
 
     out_path = default_out_path(args.out, start)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     report_pdf.render(out_path, period=(start, end), breakdown=breakdown,
-                      categories=categories)
+                      categories=categories, income_categories=income_categories)
 
     spend_totals, _ = report.aggregate_by_category(breakdown.spending, categories)
     total_spend = sum(c.total for c in spend_totals)

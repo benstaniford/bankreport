@@ -164,6 +164,24 @@ def test_aggregate_transfers_count_as_spend():
     assert [(c.category, c.total) for c in non_spend] == [("Savings", 200.0)]
 
 
+def test_income_parsing_and_aggregation():
+    text = ('{"AVECTO LIMITED": {"category": "Salary", "merchant": "Avecto"}, '
+            '"HMRC CHILD BENEFIT": {"category": "Benefits", "merchant": "HMRC"}, '
+            '"WEIRD CREDIT": {"category": "Nonsense", "merchant": "?"}}')
+    cats = report.parse_category_response(
+        text, valid=frozenset(report.INCOME_CATEGORIES), fallback="Other Income")
+    assert cats["AVECTO LIMITED"]["category"] == "Salary"
+    assert cats["WEIRD CREDIT"]["category"] == "Other Income"  # coerced
+
+    income = [
+        _txn("natwest", "AVECTO LIMITED", 4777.23),
+        _txn("natwest", "HMRC CHILD BENEFIT", 108.20),
+    ]
+    totals = report.aggregate_income(income, cats)
+    assert [(c.category, c.total) for c in totals] == [
+        ("Salary", 4777.23), ("Benefits", 108.20)]
+
+
 def test_aggregate_uncategorised_fallback():
     spending = [_txn("barclays", "MYSTERY SHOP", -15.0)]
     spend, non_spend = report.aggregate_by_category(spending, {})
