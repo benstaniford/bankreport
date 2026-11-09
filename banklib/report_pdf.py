@@ -53,9 +53,11 @@ def render(path, *, period: tuple[datetime.date, datetime.date],
         styles["muted"]))
     story.append(Spacer(1, 6 * mm))
 
+    savings_total = sum(c.total for c in non_spend_totals
+                        if c.category == "Savings")
     story.append(Paragraph("Summary", styles["h2"]))
     story.append(_summary_table(breakdown, total_spend, card_spend,
-                                current_spend))
+                                current_spend, savings_total))
     story.append(Spacer(1, 6 * mm))
 
     if spend_totals:
@@ -107,7 +109,8 @@ def _styles() -> dict:
 
 
 def _summary_table(breakdown: Breakdown, total_spend: float,
-                   card_spend: float, current_spend: float) -> Table:
+                   card_spend: float, current_spend: float,
+                   savings_total: float = 0.0) -> Table:
     net = breakdown.income_total - total_spend
     rows = [
         ["Current-account spend (NatWest)", format_money(current_spend)],
@@ -116,6 +119,11 @@ def _summary_table(breakdown: Breakdown, total_spend: float,
         ["Income", format_money(breakdown.income_total)],
         ["Net (income − spend)", format_money(net)],
     ]
+    # Rows below the net line are money that left the account but is not "spend":
+    # shown for completeness, greyed out and set apart.
+    first_excluded = len(rows)
+    if savings_total:
+        rows.append(["Savings — excluded", format_money(-savings_total)])
     if breakdown.card_payments:
         when = ", ".join(t.date.strftime("%d %b") for t in breakdown.card_payments)
         rows.append([
@@ -133,9 +141,10 @@ def _summary_table(breakdown: Breakdown, total_spend: float,
         ("FONTNAME", (0, 2), (-1, 2), "Helvetica-Bold"),
         ("LINEABOVE", (0, 2), (-1, 2), 0.6, _HEADER_BG),
     ]
-    if breakdown.card_payments:
-        style.append(("TEXTCOLOR", (0, -1), (-1, -1), _MUTED))
-        style.append(("LINEABOVE", (0, -1), (-1, -1), 0.6, _MUTED))
+    if len(rows) > first_excluded:
+        style.append(("TEXTCOLOR", (0, first_excluded), (-1, -1), _MUTED))
+        style.append(("LINEABOVE", (0, first_excluded), (-1, first_excluded),
+                      0.6, _MUTED))
     table.setStyle(TableStyle(style))
     return table
 
