@@ -41,10 +41,15 @@ def test_parse_month():
 def test_is_card_payment_true_for_barclaycard_debit():
     assert report.is_card_payment(_txn("natwest", "BARCLAYCARD PAYMENT", -500.0))
     assert report.is_card_payment(_txn("natwest", "Credit Card Payment", -200.0))
+    # The real NatWest statement payee for the Barclaycard settlement.
+    assert report.is_card_payment(_txn("natwest", "B/CARD PLAT VISA", -2893.82))
 
 
 def test_is_card_payment_false_for_ordinary_debit():
     assert not report.is_card_payment(_txn("natwest", "TESCO STORES", -42.0))
+    # "CLUBCARD"/"CLUB CARD" must not be mistaken for the Barclaycard settlement.
+    assert not report.is_card_payment(_txn("natwest", "TESCO CLUBCARD", -42.0))
+    assert not report.is_card_payment(_txn("natwest", "TESCO CLUB CARD", -42.0))
 
 
 def test_is_card_payment_false_for_barclays_purchase():

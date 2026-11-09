@@ -114,9 +114,21 @@ def load_creds(provider_name):
 
 def fetch(provider_name, start, end, *, show):
     on_status = lambda msg: print(f"[{provider_name}] {msg}", file=sys.stderr)  # noqa: E731
-    creds = load_creds(provider_name)
-    print(f"Fetching {provider_name} transactions {start} .. {end} ...",
-          file=sys.stderr)
+    # Only load bank credentials if the cache is actually missing part of the
+    # range. A fully-cached month regenerates offline, with no login needed.
+    store = banklib.TransactionStore(provider_name)
+    try:
+        gaps = store.missing_ranges(start, end)
+    finally:
+        store.close()
+    if gaps:
+        creds = load_creds(provider_name)
+        print(f"Fetching {provider_name} transactions {start} .. {end} "
+              f"(cache missing {len(gaps)} range(s)) ...", file=sys.stderr)
+    else:
+        creds = {}
+        print(f"Using cached {provider_name} transactions {start} .. {end}.",
+              file=sys.stderr)
     return banklib.get_transactions(provider_name, creds, start, end,
                                     headless=not show, on_status=on_status)
 

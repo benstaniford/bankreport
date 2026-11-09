@@ -79,10 +79,12 @@ def parse_month(value: str) -> tuple[datetime.date, datetime.date]:
 
 # -- credit-card-payment detection -----------------------------------------
 
-#: NatWest rows that settle the Barclaycard. Heuristic on the payee text; tuned
-#: after the first live run if the real statements use a different string.
+#: NatWest rows that settle the Barclaycard. Heuristic on the payee text. The
+#: real statement payee is ``B/CARD PLAT VISA`` (Barclaycard Platinum Visa), so
+#: ``b/card`` is matched as well as the fuller spellings.
 CARD_PAYMENT_RE = re.compile(
-    r"barclaycard|barclays\s*card|credit\s*card\s*(payment|bill)", re.IGNORECASE)
+    r"barclaycard|barclays\s*card|\bb\s*/?\s*card\b|credit\s*card\s*(payment|bill)",
+    re.IGNORECASE)
 
 
 def is_card_payment(txn: Transaction) -> bool:
