@@ -16,6 +16,9 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["pytest>=7.0"]
+# Needed only by the scripts/last-month PDF report; kept optional so the core
+# install stays lean. The last-month wrapper installs it explicitly too.
+report = ["reportlab>=4.0"]
 
 [project.scripts]
 # Optional console entry points for when banklib is pip-installed directly.

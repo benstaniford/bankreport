@@ -1,0 +1,234 @@
+#!/usr/bin/env python3
+"""Produce a PDF outlining last calendar month's spending across both banks.
+
+A wrapper around the `banklib` library. It pulls the month's transactions from
+NatWest (current account) and Barclays (credit card) via banklib's cached
+transaction API, categorises them — starting a `claude` subprocess to identify
+unfamiliar merchants — and renders a PDF report.
+
+Barclays is a credit card paid off by the NatWest current account, so the monthly
+credit-card payment leaving NatWest is NOT counted as spending (that would
+double-count the Barclays purchases it settles); it is reported separately.
+
+On first run this creates a private venv and installs banklib (+ reportlab) into
+it from the local repo, then re-executes itself inside that venv. Set BANKLIB_REPO
+to point at the repo if it isn't at ~/Code/bankreport. Firefox must be installed.
+
+Usage:
+    last-month                      report the previous calendar month
+    last-month --month 2026-10      report a specific month (YYYY-MM)
+    last-month --out ~/reports/     write the PDF to a directory or file path
+    last-month --show               visible browser window (debugging / 2FA)
+    last-month --no-claude          skip Claude categorisation (Uncategorised)
+"""
+
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+CACHE_DIR = Path.home() / ".cache" / "banklib"
+VENV = CACHE_DIR / "venv"
+# Windows venvs put the interpreter in Scripts/python.exe; POSIX uses bin/python.
+VENV_PY = VENV / "Scripts" / "python.exe" if os.name == "nt" else VENV / "bin" / "python"
+REPO = Path(os.environ.get("BANKLIB_REPO", Path.home() / "Code" / "bankreport"))
+
+
+def ensure_venv():
+    """Re-run inside the private venv, creating it (and installing deps) if needed."""
+    if Path(sys.prefix).resolve() == VENV.resolve():
+        return
+    # A marker written only after a successful install lets a half-built venv
+    # heal itself, rather than trusting the mere presence of the interpreter.
+    marker = VENV / ".banklib-installed"
+    if not VENV_PY.exists():
+        print("First run: creating venv in ~/.cache/banklib/venv ...", file=sys.stderr)
+        subprocess.run([sys.executable, "-m", "venv", str(VENV)], check=True)
+    if not marker.exists():
+        print(f"Installing banklib from {REPO} ...", file=sys.stderr)
+        subprocess.run([str(VENV_PY), "-m", "pip", "install", "-q", "-e", str(REPO)],
+                       check=True)
+        marker.touch()
+    # reportlab is only needed by this script, and the shared venv may predate it
+    # (it installs banklib's deps just once), so ensure it explicitly.
+    if subprocess.run([str(VENV_PY), "-c", "import reportlab"],
+                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode:
+        print("Installing reportlab ...", file=sys.stderr)
+        subprocess.run([str(VENV_PY), "-m", "pip", "install", "-q", "reportlab"],
+                       check=True)
+    # Windows has no real exec(); a subprocess hand-off behaves the same everywhere.
+    proc = subprocess.run([str(VENV_PY), __file__, *sys.argv[1:]])
+    sys.exit(proc.returncode)
+
+
+ensure_venv()
+
+# -- inside the venv from here ---------------------------------------------
+
+import argparse  # noqa: E402
+import datetime  # noqa: E402
+import json  # noqa: E402
+import shutil  # noqa: E402
+
+import banklib  # noqa: E402
+from banklib import report, report_pdf  # noqa: E402
+
+PROVIDERS = ("natwest", "barclays")
+CATEGORY_CACHE = CACHE_DIR / "categories.json"
+
+
+def parse_args(argv=None):
+    ap = argparse.ArgumentParser(
+        prog="last-month",
+        description="PDF report of last calendar month's spending.")
+    ap.add_argument("--month", metavar="YYYY-MM",
+                    help="month to report (default: the previous calendar month)")
+    ap.add_argument("--out", metavar="PATH",
+                    help="output directory or .pdf file path "
+                         "(default: ./last-month-YYYY-MM.pdf)")
+    ap.add_argument("--show", action="store_true",
+                    help="show the browser window (debugging / 2FA)")
+    ap.add_argument("--no-claude", action="store_true",
+                    help="skip Claude categorisation; label everything Uncategorised")
+    return ap.parse_args(argv)
+
+
+def resolve_period(month):
+    if month:
+        try:
+            return report.parse_month(month)
+        except (ValueError, IndexError):
+            sys.exit(f"Invalid --month {month!r}; expected YYYY-MM.")
+    return report.last_calendar_month(datetime.date.today())
+
+
+def load_creds(provider_name):
+    provider = banklib.get_provider(provider_name)
+    store = banklib.CredentialStore(provider_name, provider.credential_fields)
+    creds = store.load()
+    if not creds:
+        sys.exit(f"No stored {provider.display_name} credentials. "
+                 f"Run `{provider_name}` once to set them up, then retry.")
+    return creds
+
+
+def fetch(provider_name, start, end, *, show):
+    on_status = lambda msg: print(f"[{provider_name}] {msg}", file=sys.stderr)  # noqa: E731
+    creds = load_creds(provider_name)
+    print(f"Fetching {provider_name} transactions {start} .. {end} ...",
+          file=sys.stderr)
+    return banklib.get_transactions(provider_name, creds, start, end,
+                                    headless=not show, on_status=on_status)
+
+
+def categorize(descriptions, *, use_claude):
+    """Return {NORMALISED_DESC: {category, merchant}}, caching across runs."""
+    cache = _load_cache()
+    missing = [d for d in descriptions if d not in cache]
+    if missing and use_claude:
+        resolved = _ask_claude(missing)
+        for desc in missing:  # record even misses so we don't re-ask every run
+            cache[desc] = resolved.get(desc, {"category": report.UNCATEGORISED,
+                                              "merchant": ""})
+        _save_cache(cache)
+    return cache
+
+
+def _ask_claude(descriptions):
+    claude = shutil.which("claude")
+    if not claude:
+        print("claude not found on PATH; leaving new merchants Uncategorised.",
+              file=sys.stderr)
+        return {}
+    prompt = report.build_category_prompt(descriptions)
+    print(f"Asking claude to categorise {len(descriptions)} new merchant(s) ...",
+          file=sys.stderr)
+    try:
+        proc = subprocess.run(
+            [claude, "-p", prompt, "--output-format", "json"],
+            capture_output=True, text=True, timeout=180)
+    except (subprocess.TimeoutExpired, OSError) as e:
+        print(f"claude categorisation failed ({e}); leaving Uncategorised.",
+              file=sys.stderr)
+        return {}
+    if proc.returncode != 0:
+        print(f"claude exited {proc.returncode}; leaving Uncategorised.\n"
+              f"{proc.stderr.strip()}", file=sys.stderr)
+        return {}
+    text = _unwrap_claude_json(proc.stdout)
+    return report.parse_category_response(text)
+
+
+def _unwrap_claude_json(stdout):
+    """`claude -p --output-format json` wraps the reply in {"result": "..."}."""
+    try:
+        payload = json.loads(stdout)
+        if isinstance(payload, dict) and "result" in payload:
+            return payload["result"]
+    except (ValueError, TypeError):
+        pass
+    return stdout
+
+
+def _load_cache():
+    if CATEGORY_CACHE.exists():
+        try:
+            return json.loads(CATEGORY_CACHE.read_text(encoding="utf-8"))
+        except (ValueError, OSError):
+            pass
+    return {}
+
+
+def _save_cache(cache):
+    CATEGORY_CACHE.parent.mkdir(parents=True, exist_ok=True)
+    CATEGORY_CACHE.write_text(json.dumps(cache, indent=2, sort_keys=True),
+                              encoding="utf-8")
+
+
+def default_out_path(out, start):
+    name = f"last-month-{start.strftime('%Y-%m')}.pdf"
+    if not out:
+        return Path.cwd() / name
+    p = Path(out).expanduser()
+    if p.is_dir() or str(out).endswith(("/", os.sep)):
+        return p / name
+    if p.suffix.lower() == ".pdf":
+        return p
+    return p / name
+
+
+def main(argv=None):
+    args = parse_args(argv)
+    start, end = resolve_period(args.month)
+
+    try:
+        natwest = fetch("natwest", start, end, show=args.show)
+        barclays = fetch("barclays", start, end, show=args.show)
+    except banklib.BankError as e:
+        print(f"Failed to fetch transactions: {e}", file=sys.stderr)
+        return 1
+
+    breakdown = report.classify(natwest, barclays)
+    descriptions = report.unique_descriptions(breakdown.spending)
+    categories = categorize(descriptions, use_claude=not args.no_claude)
+
+    out_path = default_out_path(args.out, start)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    report_pdf.render(out_path, period=(start, end), breakdown=breakdown,
+                      categories=categories)
+
+    spend_totals, _ = report.aggregate_by_category(breakdown.spending, categories)
+    total_spend = sum(c.total for c in spend_totals)
+    print(f"\nWrote {out_path}")
+    print(f"  {start.strftime('%B %Y')}: total spend "
+          f"{banklib.format_money(total_spend)}, income "
+          f"{banklib.format_money(breakdown.income_total)}", file=sys.stderr)
+    if breakdown.card_payments:
+        print(f"  credit-card payment (excluded): "
+              f"{banklib.format_money(-breakdown.card_payment_total)}",
+              file=sys.stderr)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

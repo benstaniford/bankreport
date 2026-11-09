@@ -62,6 +62,26 @@ barclays                show balances            (no --download: Barclays has no
 
 Download flags appear only for providers that support downloads.
 
+### Monthly spending report
+
+`scripts/last-month` builds a PDF of the previous calendar month's spending
+across both banks from the cached transaction API:
+
+```
+last-month                  report the previous calendar month
+last-month --month 2026-10  a specific month (YYYY-MM)
+last-month --out ~/reports/ write the PDF to a directory or file path
+last-month --show           visible browser window (debugging / 2FA)
+last-month --no-claude      skip Claude categorisation (label Uncategorised)
+```
+
+Barclays is a credit card paid off by the NatWest current account, so the monthly
+card settlement leaving NatWest is excluded from the spend total and reported
+separately (the real spending is the Barclays purchases it covers). Transactions
+are categorised by shelling out to the `claude` CLI, with results cached in
+`~/.cache/banklib/categories.json` so repeat runs don't re-ask. Rendering uses
+reportlab (`pip install -e .[report]`); the wrapper installs it automatically.
+
 ## Adding a provider
 
 Drop a module in `banklib/providers/` with a `@register`-decorated `Provider`
