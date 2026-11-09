@@ -150,6 +150,20 @@ def test_aggregate_by_category_totals_and_splits():
     assert [(c.category, c.total) for c in non_spend] == [("Savings", 200.0)]
 
 
+def test_aggregate_transfers_count_as_spend():
+    spending = [
+        _txn("natwest", "FP TO SAM", -80.0),
+        _txn("natwest", "MOVE TO SAVINGS", -200.0),
+    ]
+    categories = {
+        "FP TO SAM": {"category": "Transfers", "merchant": "Sam"},
+        "MOVE TO SAVINGS": {"category": "Savings", "merchant": "Savings"},
+    }
+    spend, non_spend = report.aggregate_by_category(spending, categories)
+    assert [(c.category, c.total) for c in spend] == [("Transfers", 80.0)]
+    assert [(c.category, c.total) for c in non_spend] == [("Savings", 200.0)]
+
+
 def test_aggregate_uncategorised_fallback():
     spending = [_txn("barclays", "MYSTERY SHOP", -15.0)]
     spend, non_spend = report.aggregate_by_category(spending, {})

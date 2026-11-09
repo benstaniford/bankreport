@@ -48,10 +48,11 @@ CATEGORIES = [
 #: Used when nothing is known about a description (no Claude, or a gap).
 UNCATEGORISED = "Uncategorised"
 
-#: Categories that are not "spending": they are money moving between the user's
-#: own pots, or money coming in. Excluded from the headline spend total but shown
-#: separately so the report still balances.
-NON_SPEND_CATEGORIES = frozenset({"Income", "Transfers", "Savings"})
+#: Categories that are not "spending": money coming in (Income) or moved into the
+#: user's own savings. Excluded from the headline spend total but shown separately
+#: so the report still balances. Transfers (e.g. payments to other people) DO
+#: count as spend.
+NON_SPEND_CATEGORIES = frozenset({"Income", "Savings"})
 
 _VALID_CATEGORIES = frozenset(CATEGORIES)
 
