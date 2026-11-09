@@ -10,9 +10,9 @@ from banklib import report
 D = datetime.date
 
 
-def _txn(provider, desc, amount, day=15, account="Acct"):
+def _txn(provider, desc, amount, day=15, account="Acct", type=None):
     return Transaction(date=D(2026, 10, day), description=desc, amount=amount,
-                       account=account, provider=provider)
+                       account=account, provider=provider, type=type)
 
 
 # -- month boundaries -------------------------------------------------------
@@ -79,6 +79,22 @@ def test_classify_splits_buckets():
     # Spending = both Barclays rows + the NatWest non-card debit, not the payment.
     descs = sorted(t.description for t in b.spending)
     assert descs == ["AMAZON", "REFUND", "TESCO"]
+
+
+def test_classify_drops_barclays_payment_credit():
+    # The card settlement shows on the Barclays statement as a positive "payment"
+    # credit; it must not land in spending (where it would cancel purchases).
+    barclays = [
+        _txn("barclays", "AMAZON", -30.0, type="purchase"),
+        _txn("barclays", "Payment By Direct Debit", 500.0, type="payment"),
+        _txn("barclays", "VINTED REFUND", 5.0, type="refund"),
+    ]
+    b = report.classify([], barclays)
+    descs = sorted(t.description for t in b.spending)
+    assert descs == ["AMAZON", "VINTED REFUND"]
+    # Net Barclays spend is the purchase less the refund, not flipped negative.
+    spend, _ = report.aggregate_by_category(b.spending, {})
+    assert sum(c.total for c in spend) == 25.0
 
 
 # -- category response parsing ---------------------------------------------

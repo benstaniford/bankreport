@@ -107,6 +107,10 @@ class Breakdown:
     purchases + NatWest non-card outgoings); refunds (positive rows) stay in so a
     category's net is honest. ``card_payments`` is the NatWest→Barclaycard
     settlement(s), reported separately. ``income`` is the NatWest credits.
+
+    The card settlement also appears on the **Barclays** statement as a payment
+    credit; it is dropped (not counted as a negative "spend") so it isn't
+    double-represented — the NatWest side is the one we report.
     """
 
     spending: list[Transaction] = field(default_factory=list)
@@ -127,13 +131,15 @@ def classify(natwest: list[Transaction],
              barclays: list[Transaction]) -> Breakdown:
     """Split NatWest + Barclays transactions into reporting buckets.
 
-    * Every Barclays row is spending (purchases are negative, refunds positive).
+    * Barclays purchases/refunds are spending; the statement's payment credit
+      (``type == "payment"``, the card being settled) is dropped — it mirrors the
+      NatWest card payment and would otherwise cancel out real purchases.
     * NatWest **outgoings** are spending, except the card settlement, which goes
       to ``card_payments``.
     * NatWest **credits** are income.
     """
     b = Breakdown()
-    b.spending.extend(barclays)
+    b.spending.extend(t for t in barclays if t.type != "payment")
     for t in natwest:
         if is_card_payment(t):
             b.card_payments.append(t)
