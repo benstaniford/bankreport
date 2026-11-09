@@ -56,11 +56,14 @@ def render(path, *, period: tuple[datetime.date, datetime.date],
         styles["muted"]))
     story.append(Spacer(1, 6 * mm))
 
+    income_totals, excluded_income = aggregate_income(
+        breakdown.income, income_categories)
+    real_income = sum(c.total for c in income_totals)
     savings_total = sum(c.total for c in non_spend_totals
                         if c.category == "Savings")
     story.append(Paragraph("Summary", styles["h2"]))
     story.append(_summary_table(breakdown, total_spend, card_spend,
-                                current_spend, savings_total))
+                                current_spend, real_income, savings_total))
     story.append(Spacer(1, 6 * mm))
 
     if spend_totals:
@@ -70,13 +73,18 @@ def render(path, *, period: tuple[datetime.date, datetime.date],
         story.append(_category_chart(spend_totals))
         story.append(Spacer(1, 6 * mm))
 
-    income_totals = aggregate_income(breakdown.income, income_categories)
     if income_totals:
         story.append(Paragraph("Income by category", styles["h2"]))
         story.append(_category_table(income_totals, None))
         if len(income_totals) > 1:
             story.append(Spacer(1, 4 * mm))
             story.append(_category_chart(income_totals))
+        story.append(Spacer(1, 6 * mm))
+
+    if excluded_income:
+        story.append(Paragraph(
+            "Excluded from income (savings top-ups, benefits)", styles["h2"]))
+        story.append(_category_table(excluded_income, None))
         story.append(Spacer(1, 6 * mm))
 
     if non_spend_totals:
@@ -121,13 +129,13 @@ def _styles() -> dict:
 
 def _summary_table(breakdown: Breakdown, total_spend: float,
                    card_spend: float, current_spend: float,
-                   savings_total: float = 0.0) -> Table:
-    net = breakdown.income_total - total_spend
+                   income_total: float, savings_total: float = 0.0) -> Table:
+    net = income_total - total_spend
     rows = [
         ["Current-account spend (NatWest)", format_money(current_spend)],
         ["Credit-card spend (Barclays)", format_money(card_spend)],
         ["Total spend", format_money(total_spend)],
-        ["Income", format_money(breakdown.income_total)],
+        ["Income", format_money(income_total)],
         ["Net (income − spend)", format_money(net)],
     ]
     # Rows below the net line are money that left the account but is not "spend":

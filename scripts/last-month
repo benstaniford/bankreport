@@ -244,10 +244,12 @@ def main(argv=None):
 
     spend_totals, _ = report.aggregate_by_category(breakdown.spending, categories)
     total_spend = sum(c.total for c in spend_totals)
+    income_totals, _ = report.aggregate_income(breakdown.income, income_categories)
+    real_income = sum(c.total for c in income_totals)
     print(f"\nWrote {out_path}")
     print(f"  {start.strftime('%B %Y')}: total spend "
           f"{banklib.format_money(total_spend)}, income "
-          f"{banklib.format_money(breakdown.income_total)}", file=sys.stderr)
+          f"{banklib.format_money(real_income)}", file=sys.stderr)
     if breakdown.card_payments:
         print(f"  credit-card payment (excluded): "
               f"{banklib.format_money(-breakdown.card_payment_total)}",

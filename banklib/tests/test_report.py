@@ -176,10 +176,14 @@ def test_income_parsing_and_aggregation():
     income = [
         _txn("natwest", "AVECTO LIMITED", 4777.23),
         _txn("natwest", "HMRC CHILD BENEFIT", 108.20),
+        _txn("natwest", "TEMBO SAVINGS", 1000.0),
     ]
-    totals = report.aggregate_income(income, cats)
-    assert [(c.category, c.total) for c in totals] == [
-        ("Salary", 4777.23), ("Benefits", 108.20)]
+    cats["TEMBO SAVINGS"] = {"category": "Savings Drawdown", "merchant": "Tembo"}
+    real, excluded = report.aggregate_income(income, cats)
+    # Only the salary is real income; benefits and the savings top-up are excluded.
+    assert [(c.category, c.total) for c in real] == [("Salary", 4777.23)]
+    assert sorted((c.category, c.total) for c in excluded) == [
+        ("Benefits", 108.20), ("Savings Drawdown", 1000.0)]
 
 
 def test_aggregate_uncategorised_fallback():

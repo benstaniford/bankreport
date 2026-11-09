@@ -55,8 +55,15 @@ INCOME_CATEGORIES = [
     "Refunds",
     "Gifts",
     "Transfers In",
+    "Savings Drawdown",
     "Other Income",
 ]
+
+#: Money-in categories that are not *real* income: pass-through benefits (repaid
+#: later) and money moved in from the user's own savings/investments to stay
+#: liquid. Excluded from the headline income total but shown separately.
+NON_INCOME_CATEGORIES = frozenset(
+    {"Benefits", "Investments", "Savings Drawdown", "Transfers In"})
 
 #: Used when nothing is known about a description (no Claude, or a gap).
 UNCATEGORISED = "Uncategorised"
@@ -217,10 +224,12 @@ def build_income_prompt(descriptions: list[str]) -> str:
         f"Allowed categories (use these spellings only): {cats}.\n"
         "Guidance: wages/salary from an employer -> Salary; HMRC/DWP/child "
         "benefit/universal credit -> Benefits; a pension provider -> Pension; "
-        "bank/savings interest -> Interest; dividends or money back from an "
-        "investment/savings platform -> Investments; a merchant refund -> Refunds; "
-        "money from friends/family -> Gifts; money moved in from your own other "
-        "account -> Transfers In; anything else -> Other Income.\n\n"
+        "bank/savings interest -> Interest; dividends or genuine investment "
+        "income -> Investments; money moved in from your own savings or "
+        "investment platform to top up / stay liquid -> Savings Drawdown; a "
+        "merchant refund -> Refunds; money from friends/family -> Gifts; money "
+        "moved in from your own other current account -> Transfers In; anything "
+        "else -> Other Income.\n\n"
         "Respond with ONLY a JSON object mapping each exact description (verbatim, "
         'as given) to an object {\"category\": \"...\", \"merchant\": \"...\"}. '
         "No prose, no code fences.\n\n"
@@ -316,13 +325,23 @@ def aggregate_by_category(
     return spend, non_spend
 
 
-def aggregate_income(income: list[Transaction],
-                     categories: dict[str, dict]) -> list[CategoryTotal]:
-    """Totals per income category (amounts are positive), largest first."""
+def aggregate_income(
+    income: list[Transaction], categories: dict[str, dict]
+) -> tuple[list[CategoryTotal], list[CategoryTotal]]:
+    """Totals per income category, split into ``(real_income, excluded)``.
+
+    Amounts are positive; each list is sorted largest first. ``excluded`` holds
+    the :data:`NON_INCOME_CATEGORIES` (benefits, savings/investment top-ups) that
+    are not counted as real income.
+    """
     buckets: dict[str, list[float]] = {}
     for t in income:
         buckets.setdefault(category_of(t, categories), []).append(t.amount)
-    totals = [CategoryTotal(category=cat, total=sum(amounts), count=len(amounts))
-              for cat, amounts in buckets.items()]
-    totals.sort(key=lambda c: c.total, reverse=True)
-    return totals
+    real: list[CategoryTotal] = []
+    excluded: list[CategoryTotal] = []
+    for cat, amounts in buckets.items():
+        ct = CategoryTotal(category=cat, total=sum(amounts), count=len(amounts))
+        (excluded if cat in NON_INCOME_CATEGORIES else real).append(ct)
+    real.sort(key=lambda c: c.total, reverse=True)
+    excluded.sort(key=lambda c: c.total, reverse=True)
+    return real, excluded
